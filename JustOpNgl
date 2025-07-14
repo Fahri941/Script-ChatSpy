@@ -1,48 +1,58 @@
-local StarterGui = game:GetService("StarterGui")
+-- FE ChatSpy using TextChatService (2025 rewrite)
+-- Inspired by classic ChatSpy by Olaurau2
+-- Fully supports team/private messages + /spy toggle
+
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-local saymsg = game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents"):WaitForChild("SayMessageRequest")
-local getmsg = game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents"):WaitForChild("OnMessageDoneFiltering")
+local TextChatService = game:GetService("TextChatService")
+local StarterGui = game:GetService("StarterGui")
+local LocalPlayer = Players.LocalPlayer
+
+local enabled = true
+local spyPrefix = "[SPY]"
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
-local function onChatted(p,msg)
-	if _G.chatSpyInstance == instance then
-		if p==player and msg:lower():sub(1,4)=="/spy" then
-			enabled = not enabled
-			wait(0.3)
-			privateProperties.Text = "{SPY "..(enabled and "EN" or "DIS").."ABLED}"
-			StarterGui:SetCore("ChatMakeSystemMessage",privateProperties)
-		elseif enabled and (spyOnMyself==true or p~=player) then
-			msg = msg:gsub("[\n\r]",''):gsub("\t",' '):gsub("[ ]+",' ')
-			local hidden = true
-			local conn = getmsg.OnClientEvent:Connect(function(packet,channel)
-				if packet.SpeakerUserId==p.UserId and packet.Message==msg:sub(#msg-#packet.Message+1) and (channel=="All" or (channel=="Team" and public==false and Players[packet.FromSpeaker].Team==player.Team)) then
-					hidden = false
-				end
-			end)
-			wait(1)
-			conn:Disconnect()
-			if hidden and enabled then
-				if public then
-					saymsg:FireServer((publicItalics and "/me " or '').."{SPY} [".. p.Name .."]: "..msg,"All")
-				else
-					privateProperties.Text = "{SPY} [".. p.Name .."]: "..msg
-					StarterGui:SetCore("ChatMakeSystemMessage",privateProperties)
-				end
-			end
-		end
-	end
+-- Custom message formatting
+local function MakeMessage(playerName, msg, channel)
+	return string.format("%s [%s] (%s): %s", spyPrefix, playerName, channel, msg)
 end
 
-for _,p in ipairs(Players:GetPlayers()) do
-	p.Chatted:Connect(function(msg) onChatted(p,msg) end)
+-- Print message to system chat
+local function SendSystem(msg)
+	StarterGui:SetCore("ChatMakeSystemMessage", {
+		Text = msg,
+		Color = Color3.new(1,1,1),
+		Font = Enum.Font.SourceSansBold,
+		FontSize = Enum.FontSize.Size24
+	})
 end
-Players.PlayerAdded:Connect(function(p)
-	p.Chatted:Connect(function(msg) onChatted(p,msg) end)
+
+-- Toggle with "/spy"
+LocalPlayer.Chatted:Connect(function(msg)
+	if msg:lower() == "/spy" then
+		enabled = not enabled
+		SendSystem("{SPY " .. (enabled and "EN" or "DIS") .. "ABLED}")
+	end
 end)
-privateProperties.Text = "{SPY "..(enabled and "EN" or "DIS").."ABLED}"
-StarterGui:SetCore("ChatMakeSystemMessage",privateProperties)
-local chatFrame = player.PlayerGui.Chat.Frame
-chatFrame.ChatChannelParentFrame.Visible = true
-chatFrame.ChatBarParentFrame.Position = chatFrame.ChatChannelParentFrame.Position+UDim2.new(UDim.new(),chatFrame.ChatChannelParentFrame.Size.Y)
+
+-- TextChatService spy logic
+TextChatService.OnIncomingMessage = function(message)
+	if _G.chatSpyInstance ~= instance then return end
+	if not enabled then return end
+
+	local props = message.TextSource
+	if not props then return end
+
+	local sender = Players:GetPlayerByUserId(props.UserId)
+	if not sender or sender == LocalPlayer then return end
+
+	local msg = message.Text
+	local channel = message.TextChannel and message.TextChannel.Name or "?"
+
+	-- Format & show
+	local formatted = MakeMessage(sender.Name, msg, channel)
+	SendSystem(formatted)
+end
+
+-- Initial message
+SendSystem("{SPY ENABLED} - Using TextChatService. Type /spy to toggle.")
